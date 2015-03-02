@@ -139,20 +139,20 @@ var Game = function Game(){
     }
   }
 
-  this.displayState(){
+  this.displayState = function displayState(){
     console.log(this.chessBoard.toString());
-    console.log((this.turn ? 'Black' : 'White') + '\'s turn to move:');
+    console.log((this.turn ? 'White' : 'Black') + '\'s turn to move:');
   };
 
   this.run = function run(){
     this.init();
     
     //  Loops for each turn while gameOver flag is false
-    while(!gameOver){
+    while(!this.gameOver){
       this.displayState();
 
       //  Returns to retry getting Move as long as current Move is invalid
-      while(!validatedMove){
+      while(!this.validatedMove){
         this.interface.getMove();
       }
     }
