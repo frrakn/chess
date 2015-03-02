@@ -76,9 +76,12 @@ var Game = function Game(){
   this.whitePlayer = new Player(true);
   this.chessBoard = new Board();
   this.moveLog = [];
+  this.interface = new Interface(this);
 
-  //  boolean keeps track of turn
+  //  boolean keeps track of game state
   this.turn = true;
+  this.validatedMove = false;
+  this.gameOver = false;
 
   //  Initializing a game will place pieces in players and boards
   this.init = function init(){
@@ -135,6 +138,25 @@ var Game = function Game(){
       }
     }
   }
+
+  this.displayState(){
+    console.log(this.chessBoard.toString());
+    console.log((this.turn ? 'Black' : 'White') + '\'s turn to move:');
+  };
+
+  this.run = function run(){
+    this.init();
+    
+    //  Loops for each turn while gameOver flag is false
+    while(!gameOver){
+      this.displayState();
+
+      //  Returns to retry getting Move as long as current Move is invalid
+      while(!validatedMove){
+        this.interface.getMove();
+      }
+    }
+  };
 };
 
 
@@ -592,9 +614,14 @@ var ATTACK_DIRECTIONS = {
   * 
   */
 
-var Interface = function Interface(){
-  this.chessGame = new Game();
-    //  Parses all moves as incoming text
+var Interface = function Interface(game){
+  this.chessGame = game;
+
+  this.getMove = function getMove(){
+    return this.parseMove(readline.prompt());
+  };
+
+  //  Parses all moves as incoming text
   this.parseMove = function parseMove(string){
     var output = new Move();
     output.chessPiece = new Piece();
@@ -774,8 +801,9 @@ var Move = function Move(moveType, chessPiece, coordinates_old, coordinates_new,
   *
   */
 
-(function(){
-  console.log('Hello');
-  var input = readline.prompt();
-  console.log('You have typed ' + input);
-})();
+var main = function main(){
+  var game = new Game();
+  game.run();
+};
+
+main();
