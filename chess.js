@@ -1,5 +1,5 @@
 /** 
-  * CHESS.JS v0.0.5
+  * CHESS.JS v0.0.6
   * AUTHOR: Frrakn
   * 
   * PREV VERSION - Functions complete
@@ -21,7 +21,8 @@
   * 
   */
 
-
+var _ = require('underscore');
+var readline = require('readline-sync');
 
 /** 
   * PLAYER 
@@ -763,3 +764,18 @@ var Move = function Move(moveType, chessPiece, coordinates_old, coordinates_new,
     return new Move(this.moveType, this.chessPiece, _.clone(this.coordinates_old), _.clone(this.coordinates_new), this.captureFlag, this.capturePiece, this.promoteFlag, this.promoteType);
   };
 };
+
+
+
+/**
+  * MAIN FUNCTION
+  *
+  * Runs when node shell is initialized
+  *
+  */
+
+(function(){
+  console.log('Hello');
+  var input = readline.prompt();
+  console.log('You have typed ' + input);
+})();
