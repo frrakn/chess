@@ -1,10 +1,10 @@
 /** 
-  * CHESS.JS v0.0.6
+  * CHESS.JS v0.9.2
   * AUTHOR: Frrakn
   * 
-  * PREV VERSION - Functions complete
+  * Somewhat stable...
   * 
-  * ISSUES
+  * ISSUES / POTENTIAL "FIXES"
   * 1) Should probably make coordinates a class
   *    and convert to regular [1,8][1,8] coordinates
   * 2) Should make Board.addCoordinates method return a coordinate
@@ -44,18 +44,26 @@ var Player = function Player(color){
   //  Pieces this player currently owns
   this.pieces = [];
 
-  //  Gets all positionally correct moves (does 
-  //  not check for moves that put king in check)
-  this.getPosCorrectMoves = function getPosCorrectMoves(){
-  };
-  
-  //  Called by a piece when taken
-  this.remove = function remove(piece){
-  };
-
   //  Detemines eligibility for en passant
   this.doublePush = false;
   this.doublePushPawn = null;
+
+  //  Easier to determine check by keeping
+  //  a pointer to king and not having to search
+  //  for it all the time. Value determined when
+  //  game initializes.
+  this.king = null;
+
+  this.removePiece = function removePiece(piece){
+    var index = _.indexOf(this.pieces, piece);
+    if(index > -1){
+      this.pieces.splice(index, 1);
+    }
+  };
+
+  this.addPiece = function addPiece(piece){
+    this.pieces.push(piece);
+  };
 };
 
 
@@ -75,13 +83,19 @@ var Game = function Game(){
   this.blackPlayer = new Player(false);
   this.whitePlayer = new Player(true);
   this.chessBoard = new Board();
-  this.moveLog = [];
   this.interface = new Interface(this);
+  this.moveLog = [];
 
-  //  boolean keeps track of game state
+
+  //  Boolean keeps track of game state
   this.turn = true;
   this.validatedMove = false;
   this.gameOver = false;
+
+  //  Other data values to maintain in game
+  this.nextMove = null;
+  this.validMoves = null;
+  this.result = null;
 
   //  Initializing a game will place pieces in players and boards
   this.init = function init(){
@@ -94,7 +108,7 @@ var Game = function Game(){
                           new Piece('Bishop', this.whitePlayer, {file: 4, rank: 2}, this.chessBoard),
                           new Piece('Bishop', this.whitePlayer, {file: 7, rank: 2}, this.chessBoard),
                           new Piece('Queen', this.whitePlayer, {file: 5, rank: 2}, this.chessBoard),
-                          new Piece('King', this.whitePlayer, {file: 6, rank: 2}, this.chessBoard),
+                          new Piece('King', this.whitePlayer, {file: 6, rank: 2}, this.chessBoard),     //  <--------------- PIECES[7] IS KING
                           new Piece('Pawn', this.whitePlayer, {file: 2, rank: 3}, this.chessBoard),
                           new Piece('Pawn', this.whitePlayer, {file: 3, rank: 3}, this.chessBoard),
                           new Piece('Pawn', this.whitePlayer, {file: 4, rank: 3}, this.chessBoard),
@@ -113,7 +127,7 @@ var Game = function Game(){
                           new Piece('Bishop', this.blackPlayer, {file: 4, rank: 9}, this.chessBoard),
                           new Piece('Bishop', this.blackPlayer, {file: 7, rank: 9}, this.chessBoard),
                           new Piece('Queen', this.blackPlayer, {file: 5, rank: 9}, this.chessBoard),
-                          new Piece('King', this.blackPlayer, {file: 6, rank: 9}, this.chessBoard),
+                          new Piece('King', this.blackPlayer, {file: 6, rank: 9}, this.chessBoard),     //  <--------------- PIECES[7] IS KING
                           new Piece('Pawn', this.blackPlayer, {file: 2, rank: 8}, this.chessBoard),
                           new Piece('Pawn', this.blackPlayer, {file: 3, rank: 8}, this.chessBoard),
                           new Piece('Pawn', this.blackPlayer, {file: 4, rank: 8}, this.chessBoard),
@@ -128,6 +142,9 @@ var Game = function Game(){
     this.chessBoard.addPieces(blackPieces);
     Array.prototype.push.apply(this.whitePlayer.pieces, whitePieces);
     Array.prototype.push.apply(this.blackPlayer.pieces, blackPieces);
+
+    this.whitePlayer.king = whitePieces[7];
+    this.blackPlayer.king = blackPieces[7];
 
     //  Sentinel pieces
     for(var i = 0; i < this.chessBoard.contents.length; i++){
@@ -144,17 +161,244 @@ var Game = function Game(){
     console.log((this.turn ? 'White' : 'Black') + '\'s turn to move:');
   };
 
+  this.matchMove = function matchMove(move){
+    //  Make sure validMoves is created
+    if(!this.validMoves){
+      throw 'Valid moves have not been created, need to call resolveBoard';
+    }
+    var potentialMoves = [];
+    //  Depends on moveType
+    switch(MOVE_TYPE[move.moveType]){
+      case 'Move':
+        _.each(this.validMoves, function(element, index, list){
+          //  First, match moveType, pieceType, coordinates_new, captureflag, promoteFlag, and promotePiece
+          if((element.moveType === move.moveType) && (element.chessPiece.type === move.chessPiece.type) && (_.isEqual(element.coordinates_new, move.coordinates_new)) && (element.captureFlag === move.captureFlag) && (element.promoteFlag === move.promoteFlag) && (element.promoteType === move.promoteType)){
+            potentialMoves.push(element);
+          }
+        },this);
+
+        //  Clearing out for any potential disambiguation
+        potentialMoves = _.reject(potentialMoves, function(element, index, list){
+          return ((move.coordinates_old.file !== -1) && (move.coordinates_old.file !== element.coordinates_old.file)) || ((move.coordinates_old.rank !== -1) && (move.coordinates_old.rank !== element.coordinates_old.rank));
+        }, this);
+
+        //  If one valid move, return move
+        if(potentialMoves.length === 1){
+          this.validatedMove = true;
+          return potentialMoves[0];
+        }
+        //  If still multiple moves, need to disambiguate
+        if(potentialMoves.length > 1){
+          console.log(potentialMoves);
+          throw 'Multiple moves found, need to disambiguate piece by including either file or rank of original position.'
+        }
+        //  If no moves, will continue to end
+        break;
+      //  For castling kingside and queenside, just need to match moveType
+      case 'CastleKing':
+      case 'CastleQueen':
+        var output;
+        _.each(this.validMoves, function(element, index, list){
+          if(element.moveType === move.moveType){
+            this.validatedMove = true;
+            output = element;
+          }
+        }, this);
+        if(this.validatedMove){
+          return output;
+        }
+        break;
+      case 'INVALID':
+        throw 'INVALID move entered.'
+        break;
+    }
+    throw 'Sorry, move is not valid in context of board.';
+  };
+
+  this.executeMove = function executeMove(move, setFlags){
+    var player = this.turn ? this.whitePlayer : this.blackPlayer;
+    var opponent = this.turn ? this.blackPlayer : this.whitePlayer;
+
+    //  Move must be valid if Flags are going to be set
+    if(!setFlags || this.validatedMove){
+      this.moveLog.push(move);
+      switch(MOVE_TYPE[move.moveType]){
+        case 'Move':          
+          //  Removing captured chess piece
+          if(move.captureFlag){
+            opponent.removePiece(move.capturePiece);
+            this.chessBoard.removePiece(move.capturePiece.coordinates);
+          }
+
+          //  Moving the chess piece
+          this.chessBoard.movePiece(move.chessPiece, move.coordinates_new);
+
+          //  Promoting piece if flag is set
+          if(move.promoteFlag){
+            move.chessPiece.type = move.promoteType;
+          }
+
+          if(setFlags){
+            move.chessPiece.hasMoved = true;
+
+            //  Setting flags for en passant
+            if((PIECE_TYPE[move.chessPiece.type] === 'Pawn') && (move.coordinates_new.rank - move.coordinates_old.rank === (player.color ? 2 : -2))){
+              player.doublePush = true;
+              player.doublePushPawn = move.chessPiece;
+            }
+          }
+          break;
+        case 'CastleKing':
+          var region = this.chessBoard.castlingRegions[this.turn]['King'];
+          var king = this.chessBoard.getPiece(region[region.length - 1]);
+          var rook = this.chessBoard.getPiece(region[0]);
+          this.chessBoard.movePiece(king, region[region.length - 3]);
+          this.chessBoard.movePiece(rook, region[region.length - 2]);
+          if(setFlags){
+            king.hasMoved = true;
+            rook.hasMoved = true;
+          }
+          break;
+        case 'CastleQueen':
+          var region = this.chessBoard.castlingRegions[this.turn]['Queen'];
+          var king = this.chessBoard.getPiece(region[region.length - 1]);
+          var rook = this.chessBoard.getPiece(region[0]);
+          this.chessBoard.movePiece(king, region[region.length - 3]);
+          this.chessBoard.movePiece(rook, region[region.length - 2]);
+          if(setFlags){
+            king.hasMoved = true;
+            rook.hasMoved = true;
+          }
+          break;
+        //  Shouldn't be getting here in normal execution
+        //  Moves must be validated before execution
+        case 'INVALID':
+          throw 'Execution of INVALID Move object';
+          break;
+      }
+    }
+    else{
+      throw 'Execution of non-validated Move object';
+    }
+  };
+
+  this.undoMove = function undoMove(){
+    var move = this.moveLog.pop();
+    var player = this.turn ? this.whitePlayer : this.blackPlayer;
+    var opponent = this.turn ? this.blackPlayer : this.whitePlayer;
+    switch(MOVE_TYPE[move.moveType]){
+        case 'Move':
+
+          //  Un-promoting pawns
+          if(move.promoteFlag){
+            move.chessPiece.type = PIECE_TYPE['Pawn'];
+          }
+
+          //  Returning the chess piece
+          this.chessBoard.movePiece(move.chessPiece, move.coordinates_old);
+
+          //  Adding back captured chess piece
+          if(move.captureFlag){
+            opponent.addPiece(move.capturePiece);
+            this.chessBoard.addPiece(move.capturePiece);
+          }
+
+          break;
+        case 'CastleKing':
+          var region = this.chessBoard.castlingRegions[this.turn]['King'];
+          var king = this.chessBoard.getPiece(region[region.length - 3]);
+          var rook = this.chessBoard.getPiece(region[region.length - 2]);
+          this.chessBoard.movePiece(king, region[region.length - 1]);
+          this.chessBoard.movePiece(rook, region[0]);
+          break;
+        case 'CastleQueen':
+          var region = this.chessBoard.castlingRegions[this.turn]['Queen'];
+          var king = this.chessBoard.getPiece(region[region.length - 3]);
+          var rook = this.chessBoard.getPiece(region[region.length - 2]);
+          this.chessBoard.movePiece(king, region[region.length - 1]);
+          this.chessBoard.movePiece(rook, region[0]);
+          break;
+        //  Shouldn't be getting here in normal execution
+        //  Moves must be validated before execution
+        case 'INVALID':
+          throw 'Undoing of INVALID Move object';
+          break;
+      }
+  };
+
+  //  Differs from Piece.getValidMoves because this also
+  //  validates move in context of check
+  this.getValidMoves = function getValidMoves(){
+    var player = this.turn ? this.whitePlayer : this.blackPlayer;
+    var validMoves = [];
+    _.each(player.pieces, function(element, index, list){
+      var moves = element.getValidMoves();
+      _.each(moves, function(element, index, list){
+        this.executeMove(element, false);
+          if(!this.chessBoard.getAttackers(player.king.coordinates, !this.turn)){
+            validMoves.push(element);
+          }
+        this.undoMove(element);
+      }, this);
+    }, this);
+    return (validMoves.length > 0) ? validMoves : null;
+  };
+
+  //  Based on current state of valid Moves
+  //  GETVALIDMOVES MUST RUN BEFORE RESOLVING BOARD
+  this.resolveBoard = function resolveBoard(){
+    var player = this.turn ? this.whitePlayer : this.blackPlayer;
+    this.validMoves = this.getValidMoves();
+    if(!this.validMoves){
+      this.gameOver = true;
+      this.displayState();
+      //  If check
+      if(this.chessBoard.getAttackers(player.king.coordinates, !this.turn)){
+        this.result = this.turn ? 'Black player' : 'White player';
+        console.log('Checkmate! ' + this.result + ' wins!');
+      }
+      //  No check, no valid moves -> stalemate
+      else{
+        this.result = 'Stalemate!';
+        console.log('Stalemate!');
+      }
+    }
+  };
+
   this.run = function run(){
     this.init();
-    
+
+    /*//  TESTING CODE
+    while(true){
+      try{
+        eval(readline.prompt());
+      }
+      catch(err){
+        console.log(err);
+      }
+    }*/
+
     //  Loops for each turn while gameOver flag is false
+    this.resolveBoard();
     while(!this.gameOver){
       this.displayState();
-
       //  Returns to retry getting Move as long as current Move is invalid
       while(!this.validatedMove){
-        this.interface.getMove();
+        try{
+          this.nextMove = this.matchMove(this.interface.getMove());
+        }
+        catch(err){
+          console.log(err);
+        }
       }
+      this.executeMove(this.nextMove, true);
+
+      //  Set state for next turn
+      this.turn = !this.turn;
+      this.validatedMove = false;
+
+      //  Down here b/c gameOver takes us out of loop
+      this.resolveBoard();
     }
   };
 };
@@ -313,7 +557,24 @@ var Piece = function Piece(type, owner, coordinates, board){
           if(adjacentPiece && adjacentPiece.owner && (adjacentPiece.owner.color !== this.owner.color)){
             newMove.captureFlag = true;
             newMove.capturePiece = adjacentPiece;
-            validMoves.push(newMove);
+            newMove.promoteFlag = newMove.coordinates_new.rank === this.board.PROMOTIONRANKS[this.owner.color];
+            if(newMove.promoteFlag){
+              var promoteQ = newMove.clone();
+              var promoteB = newMove.clone();
+              var promoteN = newMove.clone();
+              var promoteR = newMove.clone();
+              promoteQ.promoteType = PIECE_TYPE['Queen'];
+              promoteB.promoteType = PIECE_TYPE['Bishop'];
+              promoteN.promoteType = PIECE_TYPE['Knight'];
+              promoteR.promoteType = PIECE_TYPE['Rook'];
+              validMoves.push(promoteQ);
+              validMoves.push(promoteB);
+              validMoves.push(promoteN);
+              validMoves.push(promoteR);
+            }
+            else{
+              validMoves.push(newMove);
+            }
           }
         }, this);
 
@@ -324,15 +585,49 @@ var Piece = function Piece(type, owner, coordinates, board){
         //  SINGLE PUSH
         newMove.coordinates_new.rank += direction;
         if(!this.board.getPiece(newMove.coordinates_new)){
-          validMoves.push(newMove);
+          newMove.promoteFlag = newMove.coordinates_new.rank === this.board.PROMOTIONRANKS[this.owner.color];
+            if(newMove.promoteFlag){
+              var promoteQ = newMove.clone();
+              var promoteB = newMove.clone();
+              var promoteN = newMove.clone();
+              var promoteR = newMove.clone();
+              promoteQ.promoteType = PIECE_TYPE['Queen'];
+              promoteB.promoteType = PIECE_TYPE['Bishop'];
+              promoteN.promoteType = PIECE_TYPE['Knight'];
+              promoteR.promoteType = PIECE_TYPE['Rook'];
+              validMoves.push(promoteQ);
+              validMoves.push(promoteB);
+              validMoves.push(promoteN);
+              validMoves.push(promoteR);
+            }
+            else{
+              validMoves.push(newMove);
+            }
 
           //  DOUBLE PUSH
           newMove = new Move('Move', this, this.coordinates, undefined, false, undefined, false, undefined);
           newMove.coordinates_new = _.clone(this.coordinates);
           newMove.coordinates_new.rank += direction * 2;
           if(!this.board.getPiece(newMove.coordinates_new) && !this.hasMoved){
-            newMove.doublePush = true;
-            validMoves.push(newMove);
+            //  Should not be the case...
+            newMove.promoteFlag = newMove.coordinates_new.rank === this.board.PROMOTIONRANKS[this.owner.color];
+            if(newMove.promoteFlag){
+              var promoteQ = newMove.clone();
+              var promoteB = newMove.clone();
+              var promoteN = newMove.clone();
+              var promoteR = newMove.clone();
+              promoteQ.promoteType = PIECE_TYPE['Queen'];
+              promoteB.promoteType = PIECE_TYPE['Bishop'];
+              promoteN.promoteType = PIECE_TYPE['Knight'];
+              promoteR.promoteType = PIECE_TYPE['Rook'];
+              validMoves.push(promoteQ);
+              validMoves.push(promoteB);
+              validMoves.push(promoteN);
+              validMoves.push(promoteR);
+            }
+            else{
+              validMoves.push(newMove);
+            }
           }
         }
 
@@ -352,7 +647,26 @@ var Piece = function Piece(type, owner, coordinates, board){
           if(EPPiece && EPPiece.owner && (EPPiece.owner.color !== this.owner.color) && EPPiece.owner.doublePush && (EPPiece.owner.doublePushPawn === EPPiece)){
             newMove.captureFlag = true;
             newMove.capturePiece = EPPiece;
-            validMoves.push(newMove);
+
+            //  Shouldn't really be a case, but included for completeness's sake
+            newMove.promoteFlag = newMove.coordinates_new.rank === this.board.PROMOTIONRANKS[this.owner.color];
+            if(newMove.promoteFlag){
+              var promoteQ = newMove.clone();
+              var promoteB = newMove.clone();
+              var promoteN = newMove.clone();
+              var promoteR = newMove.clone();
+              promoteQ.promoteType = PIECE_TYPE['Queen'];
+              promoteB.promoteType = PIECE_TYPE['Bishop'];
+              promoteN.promoteType = PIECE_TYPE['Knight'];
+              promoteR.promoteType = PIECE_TYPE['Rook'];
+              validMoves.push(promoteQ);
+              validMoves.push(promoteB);
+              validMoves.push(promoteN);
+              validMoves.push(promoteR);
+            }
+            else{
+              validMoves.push(newMove);
+            }
           }
         }, this);
 
@@ -406,7 +720,7 @@ var PIECE_DIRECTIONS = {
 
 //  Overriding toString() for a piece to help print out entire board
 Piece.prototype.toString = function toString(){
-  return (this.type === 6) ? 'X' : (this.owner.color ? (PIECE_ABBREV[this.type]).toUpperCase() : (PIECE_ABBREV[this.type]).toLowerCase());
+  return (this.type === 6) ? ' ' : (this.owner.color ? (PIECE_ABBREV[this.type]).toUpperCase() : (PIECE_ABBREV[this.type]).toLowerCase());
 };
 
 
@@ -428,6 +742,7 @@ var Board = function Board(){
   this.SENTINEL_PADDING = 2;
   this.FILES = this.FILES_BOARD + this.SENTINEL_PADDING * 2;
   this.RANKS = this.RANKS_BOARD + this.SENTINEL_PADDING * 2;
+  this.PROMOTIONRANKS = {true: this.SENTINEL_PADDING + this.RANKS_BOARD - 1, false: this.SENTINEL_PADDING};
   this.contents = new Array(this.FILES);
   for(var i = 0; i < this.RANKS; i++)
   {
@@ -440,36 +755,35 @@ var Board = function Board(){
     true:   {
               'King':   [
                           {file: 9, rank: 2},   // <------ ROOK POSITION
-                          {file: 8, rank: 2},
-                          {file: 7, rank: 2},
-                          {file: 6, rank: 2}
+                          {file: 8, rank: 2},   // <------ CASTLED KING POSITION
+                          {file: 7, rank: 2},   // <------ CASTLED ROOK POSITION
+                          {file: 6, rank: 2}    // <------ KING POSITION
                         ],
               'Queen':  [
                           {file: 2, rank: 2},   // <------ ROOK POSITION
                           {file: 3, rank: 2},
-                          {file: 4, rank: 2},
-                          {file: 5, rank: 2},
-                          {file: 6, rank: 2}
+                          {file: 4, rank: 2},   // <------ CASTLED KING POSITION
+                          {file: 5, rank: 2},   // <------ CASTLED ROOK POSITION
+                          {file: 6, rank: 2}    // <------ KING POSITION
                         ]
             },
     false:  {
               'King':   [
                           {file: 9, rank: 9},   // <------ ROOK POSITION
-                          {file: 8, rank: 9},
-                          {file: 7, rank: 9},
-                          {file: 6, rank: 9}
+                          {file: 8, rank: 9},   // <------ CASTLED KING POSITION
+                          {file: 7, rank: 9},   // <------ CASTLED ROOK POSITION
+                          {file: 6, rank: 9}    // <------ KING POSITION
                         ],
               'Queen':  [
                           {file: 2, rank: 9},   // <------ ROOK POSITION
                           {file: 3, rank: 9},
-                          {file: 4, rank: 9},
-                          {file: 5, rank: 9},
-                          {file: 6, rank: 9}
+                          {file: 4, rank: 9},   // <------ CASTLED KING POSITION
+                          {file: 5, rank: 9},   // <------ CASTLED ROOK POSITION
+                          {file: 6, rank: 9}    // <------ KING POSITION
                         ]
             }
   };
 
-  //  Used to initialize board
   this.addPiece = function addPiece(piece){
     this.contents[piece.coordinates.file][piece.coordinates.rank] = piece;
   };
@@ -480,11 +794,24 @@ var Board = function Board(){
     }, this);
   };
 
+  this.removePiece = function removePiece(coordinates){
+    var temp = this.contents[coordinates.file][coordinates.rank];
+    this.contents[coordinates.file][coordinates.rank] = undefined;
+    return temp;
+  }
+
+  this.movePiece = function movePiece(piece, coordinates_new){
+    var coordinates_old = piece.coordinates;
+    piece.coordinates = _.clone(coordinates_new);
+    this.contents[coordinates_old.file][coordinates_old.rank] = undefined;
+    this.addPiece(piece);
+  }
+
   //  Gets all attackers of a Player on a single square
   //  Returns an array of Pieces
   //  ONLY DETERMINES ATTACKERS IN CONTEXT OF CHECK
   //  DOES NOT INCORPORATE EN PASSANT
-  this.getAttackers = function(coordinates, color){
+  this.getAttackers = function getAttackers(coordinates, color){
     var attackers = [];
 
     //  Getting direction of player
@@ -643,31 +970,31 @@ var Interface = function Interface(game){
           case 'PAWN_MOVE':
             output.moveType = MOVE_TYPE['Move'];
             output.chessPiece.type = PIECE_TYPE['Pawn'];
-            output.coordinates_old.file = output.coordinates_new.file = res[1].charCodeAt() - FILE_ZERO.charCodeAt() + this.chessGame.chessBoard.SENTINEL_PADDING;
-            output.coordinates_new.rank = +res[2] + this.chessGame.chessBoard.SENTINEL_PADDING;
+            output.coordinates_old.file = output.coordinates_new.file = res[1].charCodeAt() - FILE_ZERO.charCodeAt() + this.chessGame.chessBoard.SENTINEL_PADDING - 1;
+            output.coordinates_new.rank = +res[2] + this.chessGame.chessBoard.SENTINEL_PADDING - 1;
             break;
           case 'PAWN_PROMOTE':
             output.moveType = MOVE_TYPE['Move'];
             output.chessPiece.type = PIECE_TYPE['Pawn'];
-            output.coordinates_old.file = output.coordinates_new.file = res[1].charCodeAt() - FILE_ZERO.charCodeAt() + this.chessGame.chessBoard.SENTINEL_PADDING;
-            output.coordinates_new.rank = +res[2] + this.chessGame.chessBoard.SENTINEL_PADDING;
+            output.coordinates_old.file = output.coordinates_new.file = res[1].charCodeAt() - FILE_ZERO.charCodeAt() + this.chessGame.chessBoard.SENTINEL_PADDING - 1;
+            output.coordinates_new.rank = +res[2] + this.chessGame.chessBoard.SENTINEL_PADDING - 1;
             output.promoteFlag = true;
             output.promoteType = PIECE_TYPE[res[3]];
             break;
           case 'PAWN_CAPTURE':
             output.moveType = MOVE_TYPE['Move'];
             output.chessPiece.type = PIECE_TYPE['Pawn'];
-            output.coordinates_old.file = res[1].charCodeAt() - FILE_ZERO.charCodeAt() + this.chessGame.chessBoard.SENTINEL_PADDING;
-            output.coordinates_new.file = res[2].charCodeAt() - FILE_ZERO.charCodeAt() + this.chessGame.chessBoard.SENTINEL_PADDING;
-            output.coordinates_new.rank = +res[3] + this.chessGame.chessBoard.SENTINEL_PADDING;
+            output.coordinates_old.file = res[1].charCodeAt() - FILE_ZERO.charCodeAt() + this.chessGame.chessBoard.SENTINEL_PADDING - 1
+            output.coordinates_new.file = res[2].charCodeAt() - FILE_ZERO.charCodeAt() + this.chessGame.chessBoard.SENTINEL_PADDING - 1;
+            output.coordinates_new.rank = +res[3] + this.chessGame.chessBoard.SENTINEL_PADDING - 1;
             output.captureFlag = true;
             break;
           case 'PAWN_CAPTURE_PROMOTE':
             output.moveType = MOVE_TYPE['Move'];
             output.chessPiece.type = PIECE_TYPE['Pawn'];
-            output.coordinates_old.file = res[1].charCodeAt() - FILE_ZERO.charCodeAt() + this.chessGame.chessBoard.SENTINEL_PADDING;
-            output.coordinates_new.file = res[2].charCodeAt() - FILE_ZERO.charCodeAt() + this.chessGame.chessBoard.SENTINEL_PADDING;
-            output.coordinates_new.rank = +res[3] + this.chessGame.chessBoard.SENTINEL_PADDING;
+            output.coordinates_old.file = res[1].charCodeAt() - FILE_ZERO.charCodeAt() + this.chessGame.chessBoard.SENTINEL_PADDING - 1;
+            output.coordinates_new.file = res[2].charCodeAt() - FILE_ZERO.charCodeAt() + this.chessGame.chessBoard.SENTINEL_PADDING - 1;
+            output.coordinates_new.rank = +res[3] + this.chessGame.chessBoard.SENTINEL_PADDING - 1;
             output.captureFlag = true;
             output.promoteFlag = true;
             output.promoteType = PIECE_TYPE[res[4]];
@@ -675,44 +1002,44 @@ var Interface = function Interface(game){
           case 'PIECE_MOVE':
             output.moveType = MOVE_TYPE['Move'];
             output.chessPiece.type = PIECE_TYPE[res[1]];
-            output.coordinates_new.file = res[2].charCodeAt() - FILE_ZERO.charCodeAt() + this.chessGame.chessBoard.SENTINEL_PADDING;
-            output.coordinates_new.rank = +res[3] + this.chessGame.chessBoard.SENTINEL_PADDING;
+            output.coordinates_new.file = res[2].charCodeAt() - FILE_ZERO.charCodeAt() + this.chessGame.chessBoard.SENTINEL_PADDING - 1;
+            output.coordinates_new.rank = +res[3] + this.chessGame.chessBoard.SENTINEL_PADDING - 1;
             break;
           case 'PIECE_CAPTURE':
             output.moveType = MOVE_TYPE['Move'];
             output.chessPiece.type = PIECE_TYPE[res[1]];
-            output.coordinates_new.file = res[2].charCodeAt() - FILE_ZERO.charCodeAt() + this.chessGame.chessBoard.SENTINEL_PADDING;
-            output.coordinates_new.rank = +res[3] + this.chessGame.chessBoard.SENTINEL_PADDING;
+            output.coordinates_new.file = res[2].charCodeAt() - FILE_ZERO.charCodeAt() + this.chessGame.chessBoard.SENTINEL_PADDING - 1;
+            output.coordinates_new.rank = +res[3] + this.chessGame.chessBoard.SENTINEL_PADDING - 1;
             output.captureFlag = true;
             break;
           case 'PIECE_MOVE_DISAMBIG_FILE':
             output.moveType = MOVE_TYPE['Move'];
             output.chessPiece.type = PIECE_TYPE[res[1]];
-            output.coordinates_old.file = res[2].charCodeAt() - FILE_ZERO.charCodeAt() + this.chessGame.chessBoard.SENTINEL_PADDING;
-            output.coordinates_new.file = res[3].charCodeAt() - FILE_ZERO.charCodeAt() + this.chessGame.chessBoard.SENTINEL_PADDING;
-            output.coordinates_new.rank = +res[4] + this.chessGame.chessBoard.SENTINEL_PADDING;
+            output.coordinates_old.file = res[2].charCodeAt() - FILE_ZERO.charCodeAt() + this.chessGame.chessBoard.SENTINEL_PADDING - 1;
+            output.coordinates_new.file = res[3].charCodeAt() - FILE_ZERO.charCodeAt() + this.chessGame.chessBoard.SENTINEL_PADDING - 1;
+            output.coordinates_new.rank = +res[4] + this.chessGame.chessBoard.SENTINEL_PADDING - 1;
             break;
           case 'PIECE_CAPTURE_DISAMBIG_FILE':
             output.moveType = MOVE_TYPE['Move'];
             output.chessPiece.type = PIECE_TYPE[res[1]];
-            output.coordinates_old.file = res[2].charCodeAt() - FILE_ZERO.charCodeAt() + this.chessGame.chessBoard.SENTINEL_PADDING;
-            output.coordinates_new.file = res[3].charCodeAt() - FILE_ZERO.charCodeAt() + this.chessGame.chessBoard.SENTINEL_PADDING;
-            output.coordinates_new.rank = +res[4] + this.chessGame.chessBoard.SENTINEL_PADDING;
+            output.coordinates_old.file = res[2].charCodeAt() - FILE_ZERO.charCodeAt() + this.chessGame.chessBoard.SENTINEL_PADDING - 1;
+            output.coordinates_new.file = res[3].charCodeAt() - FILE_ZERO.charCodeAt() + this.chessGame.chessBoard.SENTINEL_PADDING - 1;
+            output.coordinates_new.rank = +res[4] + this.chessGame.chessBoard.SENTINEL_PADDING - 1;
             output.captureFlag = true;
             break;
           case 'PIECE_MOVE_DISAMBIG_RANK':
             output.moveType = MOVE_TYPE['Move'];
             output.chessPiece.type = PIECE_TYPE[res[1]];
-            output.coordinates_old.rank = +res[2] + this.chessGame.chessBoard.SENTINEL_PADDING;
-            output.coordinates_new.file = res[3].charCodeAt() - FILE_ZERO.charCodeAt() + this.chessGame.chessBoard.SENTINEL_PADDING;
-            output.coordinates_new.rank = +res[4] + this.chessGame.chessBoard.SENTINEL_PADDING;
+            output.coordinates_old.rank = +res[2] + this.chessGame.chessBoard.SENTINEL_PADDING - 1;
+            output.coordinates_new.file = res[3].charCodeAt() - FILE_ZERO.charCodeAt() + this.chessGame.chessBoard.SENTINEL_PADDING - 1;
+            output.coordinates_new.rank = +res[4] + this.chessGame.chessBoard.SENTINEL_PADDING - 1;
             break;
           case 'PIECE_CAPTURE_DISAMBIG_RANK':
             output.moveType = MOVE_TYPE['Move'];
             output.chessPiece.type = PIECE_TYPE[res[1]];
-            output.coordinates_old.rank = +res[2] + this.chessGame.chessBoard.SENTINEL_PADDING;
-            output.coordinates_new.file = res[3].charCodeAt() - FILE_ZERO.charCodeAt() + this.chessGame.chessBoard.SENTINEL_PADDING;
-            output.coordinates_new.rank = +res[4] + this.chessGame.chessBoard.SENTINEL_PADDING;
+            output.coordinates_old.rank = +res[2] + this.chessGame.chessBoard.SENTINEL_PADDING - 1;
+            output.coordinates_new.file = res[3].charCodeAt() - FILE_ZERO.charCodeAt() + this.chessGame.chessBoard.SENTINEL_PADDING - 1;
+            output.coordinates_new.rank = +res[4] + this.chessGame.chessBoard.SENTINEL_PADDING - 1;
             output.captureFlag = true;
             break;
           case 'CASTLE_KING':
@@ -736,12 +1063,12 @@ var MOVE_REGEX = {
     *
     */
   
-  //  Yes, there are capturing parentheses around non-capturing parentheses.
-  //  Left them in there JIC for simplicity of reading, IMO.
-  PAWN_MOVE: /(?:^|^\s*)([a-h])([1-7])\+?\#?(?:$|\s*$)/,
-  PAWN_PROMOTE: /(?:^|^\s*)([a-h])(8)\=((?:Q|B|N|R))\+?\#?(?:$|\s*$)/,
-  PAWN_CAPTURE: /(?:^|^\s*)([a-h])x([a-h])([1-7])\+?\#?(?:$|\s*$)/,
-  PAWN_CAPTURE_PROMOTE: /(?:^|^\s*)([a-h])x([a-h])(8)\=((?:Q|B|N|R))\+?\#?(?:$|\s*$)/,
+  //  There are capturing parentheses around non-capturing parentheses.
+  //  I put them in there for simplicity of reading, in my opinion.
+  PAWN_MOVE: /(?:^|^\s*)([a-h])([1-8])\+?\#?(?:$|\s*$)/,
+  PAWN_PROMOTE: /(?:^|^\s*)([a-h])(1|8)\=((?:Q|B|N|R))\+?\#?(?:$|\s*$)/,
+  PAWN_CAPTURE: /(?:^|^\s*)([a-h])x([a-h])([1-8])\+?\#?(?:$|\s*$)/,
+  PAWN_CAPTURE_PROMOTE: /(?:^|^\s*)([a-h])x([a-h])(1|8)\=((?:Q|B|N|R))\+?\#?(?:$|\s*$)/,
   PIECE_MOVE: /(?:^|^\s*)((?:K|Q|B|N|R))([a-h])([1-8])\+?\#?(?:$|\s*$)/,
   PIECE_CAPTURE: /(?:^|^\s*)((?:K|Q|B|N|R))x([a-h])([1-8])\+?\#?(?:$|\s*$)/,
   PIECE_MOVE_DISAMBIG_FILE: /(?:^|^\s*)((?:K|Q|B|N|R))([a-h])([a-h])([1-8])\+?\#?(?:$|\s*$)/,
@@ -782,13 +1109,12 @@ var Move = function Move(moveType, chessPiece, coordinates_old, coordinates_new,
   this.captureFlag = captureFlag;
   this.capturePiece = capturePiece;
   this.promoteFlag = promoteFlag;
-  this.promoteType = promoteType;
-  this.doublePush = false;
+  this.promoteType = PIECE_TYPE[promoteType];
 
   this.clone = function clone(){
     //  Leave chessPiece and capturedPiece as pointers,
     //  'deep'-clone the coordinates
-    return new Move(this.moveType, this.chessPiece, _.clone(this.coordinates_old), _.clone(this.coordinates_new), this.captureFlag, this.capturePiece, this.promoteFlag, this.promoteType);
+    return new Move(MOVE_TYPE[this.moveType], this.chessPiece, _.clone(this.coordinates_old), _.clone(this.coordinates_new), this.captureFlag, this.capturePiece, this.promoteFlag, this.promoteType);
   };
 };
 
