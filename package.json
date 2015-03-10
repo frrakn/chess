@@ -1,15 +1,15 @@
 {
-  "name": "chess",
-  "version": "0.9.2",
-  "description": "Chess on the Node shell",
-  "main": "chess.js",
+  "name": "nodechess",
+  "version": "1.0.0",
+  "description": "Play Chess on the Node shell",
+  "main": "nodechess.js",
   "dependencies": {
     "readline-sync": "^0.7.3",
     "underscore": "^1.8.2"
   },
   "devDependencies": {},
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node nodechess"
   },
   "repository": {
     "type": "git",
