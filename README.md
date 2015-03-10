@@ -5,4 +5,4 @@ Requires Node v0.12
 
 Install via NPM using "npm install nodechess", runs via "npm test".
 
-![alt tag](http://imgur.com/CYKmbxp)
+![](http://imgur.com/CYKmbxp)
