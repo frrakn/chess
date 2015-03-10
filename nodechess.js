@@ -1,5 +1,5 @@
 /** 
-  * CHESS.JS v0.9.2
+  * CHESS.JS v1.0.0
   * AUTHOR: Frrakn
   * 
   * Somewhat stable...
