@@ -1,6 +1,6 @@
 {
   "name": "nodechess",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Play Chess on the Node shell",
   "main": "nodechess.js",
   "dependencies": {
