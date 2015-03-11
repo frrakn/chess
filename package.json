@@ -4,8 +4,8 @@
   "description": "Play Chess on the Node shell",
   "main": "nodechess.js",
   "dependencies": {
-    "readline-sync": "^0.7.3",
-    "underscore": "^1.8.2"
+    "readline-sync": "0.7.3",
+    "underscore": "1.8.x"
   },
   "devDependencies": {},
   "scripts": {
